@@ -351,6 +351,14 @@ arcpy.env.addOutputsToMap = True
 arcpy.analysis.Intersect(infFeats, cluxssurgo)
 arcpy.management.CalculateField(cluxssurgo, "acres", "!SHAPE.area@ACRES!", "PYTHON")
 
+#clean up the attribute table a little, must keep mukey for SDA query
+delFlds = ['Id', 'STATECD', 'COUNTYCD', 'COMMENTS', 'CALCACRES', 'FSA_ACRES', 'ADMNSTATE', 'ADMNCOUNTY', 'AREASYMBOL', 'SPATIALVER']
+
+##descFlds = [x.name for x in arcpy.Describe(cluxssurgo).fields]
+##for fld in descFlds:
+##    if fld in delFlds:
+arcpy.management.DeleteField(cluxssurgo, delFlds)
+
 
 
 #collect and return the mukeys from the intersect layer
