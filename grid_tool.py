@@ -247,9 +247,9 @@ def sdaInfo(mukeys):
         Msg = 'Unknown error collecting data from Soil Data Access'
         return False, Msg
 
+#===============================================================================
 
-
-import sys, os, math, httplib, traceback, arcpy
+import sys, os, math, httplib, traceback, collections, arcpy
 
 # 1 acre = 4046.86 sq. meters
 # length of a side = 63.61 meters
@@ -318,18 +318,18 @@ arcpy.AddMessage(xCells)
 arcpy.AddMessage(yCells)
 
 
-try:
-    arcpy.management.Delete("in_memory")
-except:
-    pass
-
-netMemory = "in_memory" + os.sep + "netMemory"
+##try:
+##    arcpy.management.Delete("in_memory")
+##except:
+##    pass
+##
+##netMemory = "in_memory" + os.sep + "netMemory"
 
 if wsType == 'FileSystem':
-    fullGrid = ws + os.sep + 'full_grid.shp'
+    fullGrid = ws + os.sep + 'grid.shp'
     cluxssurgo = ws + os.sep + 'clu_x_ssurgo.shp'
 else:
-    fullGrid = ws + os.sep + 'full_grid'
+    fullGrid = ws + os.sep + 'grid'
     cluxssurgo = ws + os.sep + 'clu_x_ssurgo'
 
 
@@ -340,7 +340,11 @@ arcpy.management.CreateFishnet(fullGrid, ll, ornAxs, cDMet, cDMet, None, None, o
 arcpy.management.DefineProjection(fullGrid, arcpy.Describe(tLyr).spatialReference)
 
 arcpy.management.AddField(fullGrid, "acres", "FLOAT")
-arcpy.management.AddField(fullGrid, "OM_WTA", "FLOAT")
+
+arcpy.management.AddField(fullGrid, "OM_WTA", "FLOAT", field_is_nullable = "NULLABLE")
+arcpy.management.AddField(fullGrid, "OM_PP", "FLOAT")
+arcpy.management.AddField(fullGrid, "OM_SUM", "FLOAT")
+
 arcpy.AddMessage("Added field successfully")
 arcpy.management.CalculateField(fullGrid, "acres", "!SHAPE.area@ACRES!", "PYTHON")
 
@@ -371,13 +375,89 @@ if kC1:
     sI1, sI2 = sdaInfo(kC2)
 
     if sI1:
+
+        #collectively these cursors are probably better off in a function
+        #but we'll leave them here for now...
+
+
         with arcpy.da.Editor(ws) as edit:
+            #edit.startEditing(False, True)
             with arcpy.da.UpdateCursor(cluxssurgo, ["MUKEY", "OM_WTA"]) as rows:
                 for row in rows:
                     # funcDict collected lists, OM_WTA is the 5th item
-                    theVal = sI2.get(row[0])
-                    row[1] = theVal[4]
+                    theWTA = sI2.get(row[0])
+                    theVal = theWTA[4]
+                    if theVal == None:
+                        theVal = 0
+                    #arcpy.AddMessage(theVal)
+                    row[1] = theVal
                     rows.updateRow(row)
+            del theVal
+            del row, rows
+
+            #sum the total acreage of each grid - not all grids will total the user acre parameter
+            soilGrdAc = dict()
+            with arcpy.da.SearchCursor(cluxssurgo, ['FID_grid', 'acres']) as rows:
+                for row in rows:
+                    fid = str(row[0])
+                    if not fid in soilGrdAc:
+                        soilGrdAc[fid] = row[1]
+                    else:
+                        hldrVal = soilGrdAc.get(fid)
+                        soilGrdAc[fid] = hldrVal + row[1]
+            del row, rows, hldrVal
+
+        #edit.stopEditing(True)
+        #del edit
+
+        #with arcpy.da.Editor(ws) as edit:
+            #edit.startEditing(False, True)
+
+            sDict = collections.OrderedDict(sorted(soilGrdAc.items()))
+            for k,v in sDict.iteritems():
+                arcpy.AddMessage(k + "::" + str(v))
+
+        with arcpy.da.UpdateCursor(cluxssurgo, ["FID_grid", "acres", "OM_WTA", "OM_PP"]) as rows:
+            for row in rows:
+                #had to cast FID_grid to str, an hour lost -- argh!
+                totalAc = soilGrdAc.get(str(row[0]))
+                rowAc = row[1]
+                if rowAc == None:
+                    rowAc = 0
+                omWTA = row[2]
+                #thePrint = str(omWTA) + "* (" + str(rowAc) + "/" + str(totalAc) + ")"
+                theVal = omWTA * (rowAc /totalAc)
+                row[3] = theVal
+                rows.updateRow(row)
+            del row, rows
+
+##        totalOM = dict()
+##        with arcpy.da.UpdateCursor(cluxssurgo, ['FID_grid', 'OM_PP']) as rows:
+##            for row in rows:
+##                fid = str(row[0])
+##                if not fid in totalOM:
+##                    totalOM[fid] = row[1]
+##                else:
+##                    hldrVal = totalOM.get(fid)
+##                    totalOM[fid] = hldrVal + row[1]
+##
+##        del row, rows, fid, hldrVal
+
+        sumOM =dict()
+        with arcpy.da.UpdateCursor(cluxssurgo, ['FID_grid', 'OM_PP', 'OM_SUM']) as rows:
+            for row in rows:
+                fid = str(row[0])
+                if not fid in sumOM:
+                    sumOM[fid] = row[1]
+                else:
+                    hldrVal = sumOM.get(fid)
+                    sumOM = hldrVal + row[1]
+                row[3] = sumOM
+
+
+
+
+
 
     else:
         arcpy.AddMessage(sI2)
