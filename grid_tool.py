@@ -249,13 +249,14 @@ def sdaInfo(mukeys):
 
 #===============================================================================
 
-import sys, os, math, httplib, traceback, collections, arcpy
+import sys, os, math, httplib, traceback, collections, time, arcpy
 
 # 1 acre = 4046.86 sq. meters
 # length of a side = 63.61 meters
 
 
 arcpy.env.overwriteOutput = True
+arcpy.env.addOutputsToMap = False
 
 
 # clu layer from paramater
@@ -272,7 +273,7 @@ arcpy.AddMessage(cDim)
 # length of a side from acres to sq. meters
 cSqM = float(cDim) * 4046.86
 
-#sq meters to meters
+# sq meters to meters
 cDMet = math.sqrt(cSqM)
 
 # get user output workspace and figure out what it is
@@ -328,9 +329,14 @@ arcpy.AddMessage(yCells)
 if wsType == 'FileSystem':
     fullGrid = ws + os.sep + 'grid.shp'
     cluxssurgo = ws + os.sep + 'clu_x_ssurgo.shp'
+    points = ws + os.sep + 'points.shp'
+    fpoints = ws + os.sep + 'focus_points.shp'
+
 else:
     fullGrid = ws + os.sep + 'grid'
     cluxssurgo = ws + os.sep + 'clu_x_ssurgo'
+    points = ws + os.sep + 'points'
+    fpoints = ws + os.sep + 'focus_points'
 
 
 
@@ -351,7 +357,7 @@ arcpy.management.CalculateField(fullGrid, "acres", "!SHAPE.area@ACRES!", "PYTHON
 # do the intersect
 
 infFeats = [tLyr, sLyr, fullGrid]
-arcpy.env.addOutputsToMap = True
+
 arcpy.analysis.Intersect(infFeats, cluxssurgo)
 arcpy.management.CalculateField(cluxssurgo, "acres", "!SHAPE.area@ACRES!", "PYTHON")
 
@@ -456,12 +462,38 @@ if kC1:
 
         del row, rows, fid
 
-        del soilGrdAc, sumOM
+        del soilGrdAc
 
 
+        arcpy.management.FeatureToPoint(fullGrid, points)
+        arcpy.management.AddXY(points)
+        arcpy.management.MakeFeatureLayer(points, "pointsLyr")
+        arcpy.management.MakeFeatureLayer(cluxssurgo, "cluxssurgoLyr")
+        arcpy.management.SelectLayerByLocation("pointsLyr", "INTERSECT", "cluxssurgoLyr")
+        arcpy.management.CopyFeatures("pointsLyr", fpoints)
+
+##        keepLst = []
+##        oidFLd = arcpy.Describe("pointsLyr").OIDFieldName
+##        with arcpy.da.SearchCursor(points, oidFLd) as rows:
+##            for row in rows:
+##                keepLst.append(str(row[0]))
+##        arcpy.AddMessage(keepLst)
+##
+##        del row, rows
+##
+##        with arcpy.da.UpdateCursor(points, oidFLd) as rows:
+##            for row in rows:
+##                if str(row[0]) not in keepLst:
+##                    rows.deleteRow()
 
 
+        with arcpy.da.UpdateCursor(fpoints, ["ORIG_FID","OM_SUM"]) as rows:
+            for row in rows:
+                ptOM = sumOM.get(str(row[0]))
+                row[1] = ptOM
+                rows.updateRow(row)
 
+        arcpy.management.DeleteField(fpoints, ["acres","OM_WTA", "OM_PP"])
 
 
 
@@ -473,13 +505,27 @@ else:
     arcpy.AddMessage(kC2)
 
 try:
+    symLyr = os.path.dirname(sys.argv[0]) + os.sep + 'ramp.lyr'
+    arcpy.AddMessage(symLyr)
     mxd = arcpy.mapping.MapDocument("CURRENT")
-    df = arcpy.mapping.ListDataFrames(mxd, None)[0]
-    arcpy.mapping.AddLayer(df, cluxssurgo)
+    df = arcpy.mapping.ListDataFrames(mxd)[0]
+    gcsLayer = arcpy.mapping.Layer(cluxssurgo)
+    pLayer = arcpy.mapping.Layer(fpoints)
+    arcpy.mapping.AddLayer(df, pLayer)
+    arcpy.mapping.AddLayer(df, gcsLayer)
+
+    #layer name is what is found in TOC
+    arcpy.management.ApplySymbologyFromLayer("clu_x_ssurgo", symLyr)
+
+    arcpy.RefreshTOC()
+
 
 except:
-    pass
+    errorMsg()
+    arcpy.AddMessage("Unable to add outputs to map")
 
+arcpy.management.Delete("pointsLyr")
+arcpy.management.Delete("cluxssurgoLyr")
 
 
 
