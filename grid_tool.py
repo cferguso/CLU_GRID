@@ -381,7 +381,8 @@ if kC1:
 
 
         with arcpy.da.Editor(ws) as edit:
-            #edit.startEditing(False, True)
+
+            #get the SDA weighted average and put it in the table
             with arcpy.da.UpdateCursor(cluxssurgo, ["MUKEY", "OM_WTA"]) as rows:
                 for row in rows:
                     # funcDict collected lists, OM_WTA is the 5th item
@@ -389,13 +390,13 @@ if kC1:
                     theVal = theWTA[4]
                     if theVal == None:
                         theVal = 0
-                    #arcpy.AddMessage(theVal)
                     row[1] = theVal
                     rows.updateRow(row)
-            del theVal
-            del row, rows
+
+            del row, rows,theVal,theWTA
 
             #sum the total acreage of each grid - not all grids will total the user acre parameter
+            #corresponds to the FID_grid resultant from the intersect
             soilGrdAc = dict()
             with arcpy.da.SearchCursor(cluxssurgo, ['FID_grid', 'acres']) as rows:
                 for row in rows:
@@ -405,18 +406,16 @@ if kC1:
                     else:
                         hldrVal = soilGrdAc.get(fid)
                         soilGrdAc[fid] = hldrVal + row[1]
-            del row, rows, hldrVal
 
-        #edit.stopEditing(True)
-        #del edit
+            del row, rows, fid, hldrVal
 
-        #with arcpy.da.Editor(ws) as edit:
-            #edit.startEditing(False, True)
 
-            sDict = collections.OrderedDict(sorted(soilGrdAc.items()))
-            for k,v in sDict.iteritems():
-                arcpy.AddMessage(k + "::" + str(v))
+##            sDict = collections.OrderedDict(sorted(soilGrdAc.items()))
+##            for k,v in sDict.iteritems():
+##                arcpy.AddMessage(k + "::" + str(v))
 
+        # calculate the proportional percentage for organic matter
+        # of each mapunit in the a grid cell
         with arcpy.da.UpdateCursor(cluxssurgo, ["FID_grid", "acres", "OM_WTA", "OM_PP"]) as rows:
             for row in rows:
                 #had to cast FID_grid to str, an hour lost -- argh!
@@ -431,28 +430,36 @@ if kC1:
                 rows.updateRow(row)
             del row, rows
 
-##        totalOM = dict()
-##        with arcpy.da.UpdateCursor(cluxssurgo, ['FID_grid', 'OM_PP']) as rows:
-##            for row in rows:
-##                fid = str(row[0])
-##                if not fid in totalOM:
-##                    totalOM[fid] = row[1]
-##                else:
-##                    hldrVal = totalOM.get(fid)
-##                    totalOM[fid] = hldrVal + row[1]
-##
-##        del row, rows, fid, hldrVal
 
+        # for each cell, get the sum organic matter percentage
+        # again, based on the FID_grid
         sumOM =dict()
-        with arcpy.da.UpdateCursor(cluxssurgo, ['FID_grid', 'OM_PP', 'OM_SUM']) as rows:
+        with arcpy.da.SearchCursor(cluxssurgo, ['FID_grid', 'OM_PP']) as rows:
             for row in rows:
                 fid = str(row[0])
                 if not fid in sumOM:
                     sumOM[fid] = row[1]
                 else:
                     hldrVal = sumOM.get(fid)
-                    sumOM = hldrVal + row[1]
-                row[3] = sumOM
+                    sumOM[fid] = hldrVal + row[1]
+
+        del row, rows, fid, hldrVal
+
+
+        #write the sum back to the spatial table
+        with arcpy.da.UpdateCursor(cluxssurgo, ['FID_grid', 'OM_SUM']) as rows:
+            for row in rows:
+                fid = str(row[0])
+                om = sumOM.get(fid)
+                row[1] = om
+                rows.updateRow(row)
+
+        del row, rows, fid
+
+        del soilGrdAc, sumOM
+
+
+
 
 
 
