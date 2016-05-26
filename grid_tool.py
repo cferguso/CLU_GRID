@@ -56,6 +56,8 @@ def keyCollector(grid):
                 if not mKey in mkLst:
                     mkLst.append(mKey)
         #arcpy.AddMessage(mLst)
+
+        arcpy.AddMessage('\n' + str(len(mkLst)) + ' soil mapunits exist within this CLU')
         return True, mkLst
 
     except:
@@ -72,6 +74,7 @@ def sdaInfo(mukeys):
 
     mukeys = ','.join(mukeys)
 
+    #arcpy.AddMessage('\nSending web request to Soil Data Access')
     try:
 
         ordLst = ['AREASYMBOL', 'MUSYM', 'MUNAME', 'MUKEY', 'OM_WTA']
@@ -190,6 +193,7 @@ def sdaInfo(mukeys):
         cStatus = response.status
         cResponse = response.reason
 
+        arcpy.AddMessage("\nServer response from Soil Data Access = " + cResponse + '\n')
         #PrintMsg(str(cStatus) + ": " + cResponse)
 
         xmlString = response.read()
@@ -268,265 +272,266 @@ sLyr = arcpy.GetParameterAsText(1)
 
 # acres parameter
 cDim = arcpy.GetParameterAsText(2)
-arcpy.AddMessage(cDim)
 
-# length of a side from acres to sq. meters
-cSqM = float(cDim) * 4046.86
+try:
 
-# sq meters to meters
-cDMet = math.sqrt(cSqM)
+    arcpy.SetProgressor("step", None, 0, 3, 1)
+    # length of a side from acres to sq. meters
+    cSqM = float(cDim) * 4046.86
 
-# get user output workspace and figure out what it is
-# need to add a raise exception if it's a remote db
-ws = arcpy.GetParameterAsText(3)
-wsType = arcpy.Describe(ws).workspaceType
+    # sq meters to meters
+    cDMet = math.sqrt(cSqM)
 
-
-
-#create target layer from param
-tLyr = arcpy.mapping.Layer(pLyr)
-#sR = arcpy.Describe(tLyr).spatialReference
-#arcpy.AddMessage(sR)
-
-
-#get the extent of the target layer
-xtnt = tLyr.getSelectedExtent()
-
-xMin = xtnt.XMin
-xMax = xtnt.XMax
-yMin = xtnt.YMin
-yMax = xtnt.YMax
-
-# get the origin of the grid
-ll = '%f %f' %(xMin, yMin) #str(xMin) + " " + str(yMin)
-
-# orient the grid N/S
-ornAxs = '%f %f' %(xMin, yMax) #str(xMin) + " " + str(yMax)
-
-#find the opposite corner
-xDist = xMax - xMin
-yDist = yMax - yMin
-
-xCells = int(math.ceil(xDist / cDMet))
-yCells = int(math.ceil(yDist / cDMet))
-
-upperX = xMin + (cDMet*xCells)
-upperY = yMin + (cDMet*yCells)
-
-oppCorner = '%f %f' %(upperX, upperY)
-
-arcpy.AddMessage(xCells)
-arcpy.AddMessage(yCells)
-
-
-##try:
-##    arcpy.management.Delete("in_memory")
-##except:
-##    pass
-##
-##netMemory = "in_memory" + os.sep + "netMemory"
-
-if wsType == 'FileSystem':
-    fullGrid = ws + os.sep + 'grid.shp'
-    cluxssurgo = ws + os.sep + 'clu_x_ssurgo.shp'
-    points = ws + os.sep + 'points.shp'
-    fpoints = ws + os.sep + 'focus_points.shp'
-
-else:
-    fullGrid = ws + os.sep + 'grid'
-    cluxssurgo = ws + os.sep + 'clu_x_ssurgo'
-    points = ws + os.sep + 'points'
-    fpoints = ws + os.sep + 'focus_points'
+    # get user output workspace and figure out what it is
+    # need to add a raise exception if it's a remote db
+    ws = arcpy.GetParameterAsText(3)
+    wsType = arcpy.Describe(ws).workspaceType
 
 
 
-arcpy.management.CreateFishnet(fullGrid, ll, ornAxs, cDMet, cDMet, None, None, oppCorner, False , None, "POLYGON")
+    #create target layer from param
+    tLyr = arcpy.mapping.Layer(pLyr)
+    #sR = arcpy.Describe(tLyr).spatialReference
+    #arcpy.AddMessage(sR)
 
 
-arcpy.management.DefineProjection(fullGrid, arcpy.Describe(tLyr).spatialReference)
+    #get the extent of the target layer
+    xtnt = tLyr.getSelectedExtent()
 
-arcpy.management.AddField(fullGrid, "acres", "FLOAT")
+    xMin = xtnt.XMin
+    xMax = xtnt.XMax
+    yMin = xtnt.YMin
+    yMax = xtnt.YMax
 
-arcpy.management.AddField(fullGrid, "OM_WTA", "FLOAT", field_is_nullable = "NULLABLE")
-arcpy.management.AddField(fullGrid, "OM_PP", "FLOAT")
-arcpy.management.AddField(fullGrid, "OM_SUM", "FLOAT")
+    # get the origin of the grid
+    ll = '%f %f' %(xMin, yMin) #str(xMin) + " " + str(yMin)
 
-arcpy.AddMessage("Added field successfully")
-arcpy.management.CalculateField(fullGrid, "acres", "!SHAPE.area@ACRES!", "PYTHON")
+    # orient the grid N/S
+    ornAxs = '%f %f' %(xMin, yMax) #str(xMin) + " " + str(yMax)
 
-# do the intersect
+    #find the opposite corner
+    xDist = xMax - xMin
+    yDist = yMax - yMin
 
-infFeats = [tLyr, sLyr, fullGrid]
+    xCells = int(math.ceil(xDist / cDMet))
+    yCells = int(math.ceil(yDist / cDMet))
 
-arcpy.analysis.Intersect(infFeats, cluxssurgo)
-arcpy.management.CalculateField(cluxssurgo, "acres", "!SHAPE.area@ACRES!", "PYTHON")
+    upperX = xMin + (cDMet*xCells)
+    upperY = yMin + (cDMet*yCells)
 
-#clean up the attribute table a little, must keep mukey for SDA query
-delFlds = ['Id', 'STATECD', 'COUNTYCD', 'COMMENTS', 'CALCACRES', 'FSA_ACRES', 'ADMNSTATE', 'ADMNCOUNTY', 'AREASYMBOL', 'SPATIALVER']
+    oppCorner = '%f %f' %(upperX, upperY)
 
-##descFlds = [x.name for x in arcpy.Describe(cluxssurgo).fields]
-##for fld in descFlds:
-##    if fld in delFlds:
-arcpy.management.DeleteField(cluxssurgo, delFlds)
+    grdMsg = '\nCreating a ' + cDim + ' acre cell system'
+    grdDimMsg = '\nGrid size =  ' + str(yCells) + ' rows X ' + str(xCells) + ' columns'
+    arcpy.AddMessage(grdMsg)
+    arcpy.AddMessage(grdDimMsg)
 
+    #determine workspace type and create file names
+    if wsType == 'FileSystem':
+        fullGrid = ws + os.sep + 'grid.shp'
+        cluxssurgo = ws + os.sep + 'clu_x_ssurgo.shp'
+        points = ws + os.sep + 'points.shp'
+        fpoints = ws + os.sep + 'focus_points.shp'
 
-
-#collect and return the mukeys from the intersect layer
-kC1, kC2 = keyCollector(cluxssurgo)
-
-#pass the mukeys to query
-if kC1:
-
-    #calling SDA, are you home?
-    sI1, sI2 = sdaInfo(kC2)
-
-    if sI1:
-
-        #collectively these cursors are probably better off in a function
-        #but we'll leave them here for now...
+    else:
+        fullGrid = ws + os.sep + 'grid'
+        cluxssurgo = ws + os.sep + 'clu_x_ssurgo'
+        points = ws + os.sep + 'points'
+        fpoints = ws + os.sep + 'focus_points'
 
 
-        with arcpy.da.Editor(ws) as edit:
+    # create the grid
+    arcpy.management.CreateFishnet(fullGrid, ll, ornAxs, cDMet, cDMet, None, None, oppCorner, False , None, "POLYGON")
 
-            #get the SDA weighted average and put it in the table
-            with arcpy.da.UpdateCursor(cluxssurgo, ["MUKEY", "OM_WTA"]) as rows:
+    # tell it what it is
+    arcpy.management.DefineProjection(fullGrid, arcpy.Describe(tLyr).spatialReference)
+
+    # add fields
+    flds = ["ACRES", "OM_WTA", "OM_PP", "OM_SUM"]
+    for fld in flds:
+        arcpy.management.AddField(fullGrid, fld,"FLOAT")
+    ##arcpy.management.AddField(fullGrid, "acres", "FLOAT")
+    ##arcpy.management.AddField(fullGrid, "OM_WTA", "FLOAT")
+    ##arcpy.management.AddField(fullGrid, "OM_PP", "FLOAT")
+    ##arcpy.management.AddField(fullGrid, "OM_SUM", "FLOAT")
+
+
+    arcpy.management.CalculateField(fullGrid, "ACRES", "!SHAPE.area@ACRES!", "PYTHON")
+
+    arcpy.SetProgressorPosition(1)
+    # do the intersect-clu, soils, grid
+    infFeats = [tLyr, sLyr, fullGrid]
+    arcpy.analysis.Intersect(infFeats, cluxssurgo)
+    arcpy.management.CalculateField(cluxssurgo, "ACRES", "!SHAPE.area@ACRES!", "PYTHON")
+
+    #clean up the attribute table a little, must keep mukey for SDA query
+    delFlds = ['Id', 'STATECD', 'COUNTYCD', 'COMMENTS', 'CALCACRES', 'FSA_ACRES', 'ADMNSTATE', 'ADMNCOUNTY', 'AREASYMBOL', 'SPATIALVER']
+    arcpy.management.DeleteField(cluxssurgo, delFlds)
+
+
+
+    #collect and return the mukeys from the intersect layer
+    arcpy.SetProgressorPosition(2)
+    kC1, kC2 = keyCollector(cluxssurgo)
+
+    #pass the mukeys to query
+    if kC1:
+
+        #calling SDA, are you home?
+        arcpy.SetProgressorPosition(3)
+        sI1, sI2 = sdaInfo(kC2)
+
+        if sI1:
+
+            #collectively these cursors are probably better off in a function
+            #but we'll leave them here for now...
+
+
+            with arcpy.da.Editor(ws) as edit:
+
+                arcpy.AddMessage('Finalizing tables...\n')
+                #get the SDA weighted average and put it in the table
+                with arcpy.da.UpdateCursor(cluxssurgo, ["MUKEY", "OM_WTA"]) as rows:
+                    for row in rows:
+                        # funcDict collected lists, OM_WTA is the 5th item
+                        theWTA = sI2.get(row[0])
+                        theVal = theWTA[4]
+                        if theVal == None:
+                            theVal = 0
+                        row[1] = theVal
+                        rows.updateRow(row)
+
+                del row, rows,theVal,theWTA
+
+                #sum the total acreage of each grid - not all grids will total the user acre parameter
+                #corresponds to the FID_grid resultant from the intersect
+                soilGrdAc = dict()
+                with arcpy.da.SearchCursor(cluxssurgo, ['FID_grid', 'ACRES']) as rows:
+                    for row in rows:
+                        fid = str(row[0])
+                        if not fid in soilGrdAc:
+                            soilGrdAc[fid] = row[1]
+                        else:
+                            hldrVal = soilGrdAc.get(fid)
+                            soilGrdAc[fid] = hldrVal + row[1]
+
+                del row, rows, fid, hldrVal
+
+
+    ##            sDict = collections.OrderedDict(sorted(soilGrdAc.items()))
+    ##            for k,v in sDict.iteritems():
+    ##                arcpy.AddMessage(k + "::" + str(v))
+
+            # calculate the proportional percentage for organic matter
+            # of each mapunit in the a grid cell
+            with arcpy.da.UpdateCursor(cluxssurgo, ["FID_grid", "ACRES", "OM_WTA", "OM_PP"]) as rows:
                 for row in rows:
-                    # funcDict collected lists, OM_WTA is the 5th item
-                    theWTA = sI2.get(row[0])
-                    theVal = theWTA[4]
-                    if theVal == None:
-                        theVal = 0
-                    row[1] = theVal
+                    #had to cast FID_grid to str, an hour lost -- argh!
+                    totalAc = soilGrdAc.get(str(row[0]))
+                    rowAc = row[1]
+                    if rowAc == None:
+                        rowAc = 0
+                    omWTA = row[2]
+                    #thePrint = str(omWTA) + "* (" + str(rowAc) + "/" + str(totalAc) + ")"
+                    theVal = omWTA * (rowAc /totalAc)
+                    row[3] = theVal
                     rows.updateRow(row)
+                del row, rows
 
-            del row, rows,theVal,theWTA
 
-            #sum the total acreage of each grid - not all grids will total the user acre parameter
-            #corresponds to the FID_grid resultant from the intersect
-            soilGrdAc = dict()
-            with arcpy.da.SearchCursor(cluxssurgo, ['FID_grid', 'acres']) as rows:
+            # for each cell, get the sum organic matter percentage
+            # again, based on the FID_grid
+            sumOM =dict()
+            with arcpy.da.SearchCursor(cluxssurgo, ['FID_grid', 'OM_PP']) as rows:
                 for row in rows:
                     fid = str(row[0])
-                    if not fid in soilGrdAc:
-                        soilGrdAc[fid] = row[1]
+                    if not fid in sumOM:
+                        sumOM[fid] = row[1]
                     else:
-                        hldrVal = soilGrdAc.get(fid)
-                        soilGrdAc[fid] = hldrVal + row[1]
+                        hldrVal = sumOM.get(fid)
+                        sumOM[fid] = hldrVal + row[1]
 
             del row, rows, fid, hldrVal
 
 
-##            sDict = collections.OrderedDict(sorted(soilGrdAc.items()))
-##            for k,v in sDict.iteritems():
-##                arcpy.AddMessage(k + "::" + str(v))
+            #write the sum back to the spatial table
+            with arcpy.da.UpdateCursor(cluxssurgo, ['FID_grid', 'OM_SUM']) as rows:
+                for row in rows:
+                    fid = str(row[0])
+                    om = sumOM.get(fid)
+                    row[1] = om
+                    rows.updateRow(row)
 
-        # calculate the proportional percentage for organic matter
-        # of each mapunit in the a grid cell
-        with arcpy.da.UpdateCursor(cluxssurgo, ["FID_grid", "acres", "OM_WTA", "OM_PP"]) as rows:
-            for row in rows:
-                #had to cast FID_grid to str, an hour lost -- argh!
-                totalAc = soilGrdAc.get(str(row[0]))
-                rowAc = row[1]
-                if rowAc == None:
-                    rowAc = 0
-                omWTA = row[2]
-                #thePrint = str(omWTA) + "* (" + str(rowAc) + "/" + str(totalAc) + ")"
-                theVal = omWTA * (rowAc /totalAc)
-                row[3] = theVal
-                rows.updateRow(row)
-            del row, rows
+            del row, rows, fid
+
+            del soilGrdAc
 
 
-        # for each cell, get the sum organic matter percentage
-        # again, based on the FID_grid
-        sumOM =dict()
-        with arcpy.da.SearchCursor(cluxssurgo, ['FID_grid', 'OM_PP']) as rows:
-            for row in rows:
-                fid = str(row[0])
-                if not fid in sumOM:
-                    sumOM[fid] = row[1]
-                else:
-                    hldrVal = sumOM.get(fid)
-                    sumOM[fid] = hldrVal + row[1]
-
-        del row, rows, fid, hldrVal
+            arcpy.management.FeatureToPoint(fullGrid, points)
+            arcpy.management.AddXY(points)
+            arcpy.management.MakeFeatureLayer(points, "pointsLyr")
+            arcpy.management.MakeFeatureLayer(cluxssurgo, "cluxssurgoLyr")
+            arcpy.management.SelectLayerByLocation("pointsLyr", "INTERSECT", "cluxssurgoLyr")
+            arcpy.management.CopyFeatures("pointsLyr", fpoints)
 
 
-        #write the sum back to the spatial table
-        with arcpy.da.UpdateCursor(cluxssurgo, ['FID_grid', 'OM_SUM']) as rows:
-            for row in rows:
-                fid = str(row[0])
-                om = sumOM.get(fid)
-                row[1] = om
-                rows.updateRow(row)
+            with arcpy.da.UpdateCursor(fpoints, ["ORIG_FID","OM_SUM"]) as rows:
+                for row in rows:
+                    ptOM = sumOM.get(str(row[0]))
+                    row[1] = ptOM
+                    rows.updateRow(row)
 
-        del row, rows, fid
-
-        del soilGrdAc
+            # clean up the points table - they don't need acres
+            arcpy.management.DeleteField(fpoints, ["ACRES","OM_WTA", "OM_PP"])
 
 
-        arcpy.management.FeatureToPoint(fullGrid, points)
-        arcpy.management.AddXY(points)
-        arcpy.management.MakeFeatureLayer(points, "pointsLyr")
-        arcpy.management.MakeFeatureLayer(cluxssurgo, "cluxssurgoLyr")
-        arcpy.management.SelectLayerByLocation("pointsLyr", "INTERSECT", "cluxssurgoLyr")
-        arcpy.management.CopyFeatures("pointsLyr", fpoints)
-
-##        keepLst = []
-##        oidFLd = arcpy.Describe("pointsLyr").OIDFieldName
-##        with arcpy.da.SearchCursor(points, oidFLd) as rows:
-##            for row in rows:
-##                keepLst.append(str(row[0]))
-##        arcpy.AddMessage(keepLst)
-##
-##        del row, rows
-##
-##        with arcpy.da.UpdateCursor(points, oidFLd) as rows:
-##            for row in rows:
-##                if str(row[0]) not in keepLst:
-##                    rows.deleteRow()
 
 
-        with arcpy.da.UpdateCursor(fpoints, ["ORIG_FID","OM_SUM"]) as rows:
-            for row in rows:
-                ptOM = sumOM.get(str(row[0]))
-                row[1] = ptOM
-                rows.updateRow(row)
+        else:
 
-        arcpy.management.DeleteField(fpoints, ["acres","OM_WTA", "OM_PP"])
-
-
+            arcpy.AddMessage(sI2)
+            errorMsg()
+            ForceExit('')
 
 
     else:
-        arcpy.AddMessage(sI2)
+        arcpy.AddMessage(kC2)
 
-else:
-    arcpy.AddMessage(kC2)
 
-try:
-    symLyr = os.path.dirname(sys.argv[0]) + os.sep + 'ramp.lyr'
-    arcpy.AddMessage(symLyr)
-    mxd = arcpy.mapping.MapDocument("CURRENT")
-    df = arcpy.mapping.ListDataFrames(mxd)[0]
-    gcsLayer = arcpy.mapping.Layer(cluxssurgo)
-    pLayer = arcpy.mapping.Layer(fpoints)
-    arcpy.mapping.AddLayer(df, pLayer)
-    arcpy.mapping.AddLayer(df, gcsLayer)
+    try:
 
-    #layer name is what is found in TOC
-    arcpy.management.ApplySymbologyFromLayer("clu_x_ssurgo", symLyr)
+        symLyr = os.path.dirname(sys.argv[0]) + os.sep + 'ramp.lyr'
 
-    arcpy.RefreshTOC()
+        arcpy.AddMessage(symLyr)
 
+        mxd = arcpy.mapping.MapDocument("CURRENT")
+
+        df = arcpy.mapping.ListDataFrames(mxd)[0]
+
+        gcsLayer = arcpy.mapping.Layer(cluxssurgo)
+
+        pLayer = arcpy.mapping.Layer(fpoints)
+
+        arcpy.mapping.AddLayer(df, pLayer)
+
+        arcpy.mapping.AddLayer(df, gcsLayer)
+
+        #layer name is what is found in TOC
+        arcpy.management.ApplySymbologyFromLayer("clu_x_ssurgo", symLyr)
+        arcpy.RefreshTOC()
+
+
+    except:
+        errorMsg()
+        arcpy.AddMessage("Unable to add outputs to map")
+
+    #
+    arcpy.management.Delete("pointsLyr")
+    arcpy.management.Delete("cluxssurgoLyr")
 
 except:
     errorMsg()
-    arcpy.AddMessage("Unable to add outputs to map")
-
-arcpy.management.Delete("pointsLyr")
-arcpy.management.Delete("cluxssurgoLyr")
-
+    arcpy.AddMessage('Error in Main')
 
 
 
