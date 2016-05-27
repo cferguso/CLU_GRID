@@ -364,9 +364,13 @@ try:
     arcpy.analysis.Intersect(infFeats, cluxssurgo)
     arcpy.management.CalculateField(cluxssurgo, "ACRES", "!SHAPE.area@ACRES!", "PYTHON")
 
-    #clean up the attribute table a little, must keep mukey for SDA query
+    #clean up the attribute table a little, must keep mukey for SDA query\
+    #don't want to pass the list dorectly bc there is no guarantee  all users will
+    #have the same fields.  this is just a list corresponding to what was in my files
     delFlds = ['Id', 'STATECD', 'COUNTYCD', 'COMMENTS', 'CALCACRES', 'FSA_ACRES', 'ADMNSTATE', 'ADMNCOUNTY', 'AREASYMBOL', 'SPATIALVER']
-    arcpy.management.DeleteField(cluxssurgo, delFlds)
+    for fld in delFlds:
+        if fld in [x.name for x in arcpy.Describe(cluxssurgo).fields]:
+            arcpy.management.DeleteField(cluxssurgo, fld)
 
 
 
